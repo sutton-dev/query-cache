@@ -582,19 +582,24 @@ SOQLCachePOC.runDemo();        // Full demonstration suite
 1. **SOQLQueryCache** - Main caching layer
    - Manages transaction and Platform Cache storage
    - Tracks statistics
-   - Coordinates with normalizer
+   - Coordinates with normalizer and executor
 
 2. **SOQLNormalizer** - Query normalization engine
    - Fast path for simple queries (indexOf-based)
    - Slow path for complex queries with subqueries
    - Recursive normalization for nested queries
 
-3. **SOQLStoredProcedure** - Stored procedure executor
+3. **SOQLQueryExecutor** - Sharing enforcement
+   - `with sharing` inner class for enforced sharing
+   - `without sharing` inner class for system mode
+   - Ensures proper security context
+
+4. **SOQLStoredProcedure** - Stored procedure executor
    - Loads procedures from Custom Metadata
    - Handles parameter binding and validation
    - Generates procedure-specific cache keys
 
-4. **SOQLCacheStatistics** - Metrics tracking
+5. **SOQLCacheStatistics** - Metrics tracking
    - Monitors hit/miss rates
    - Tracks storage tier usage
    - Provides summary reporting
@@ -635,11 +640,41 @@ String paramValue = String.escapeSingleQuotes(userInput);
 
 Control sharing rules via `enforceSharing` option:
 ```apex
-SOQLQueryCache.CacheOptions opts = new SOQLQueryCache.CacheOptions()
-    .setEnforceSharing(true); // Respect sharing rules (recommended)
+// WITH SHARING (default) - Respects sharing rules
+SOQLQueryCache.CacheOptions withSharingOpts = new SOQLQueryCache.CacheOptions()
+    .setEnforceSharing(true); // Recommended for user-visible data
+
+List<Account> accounts = (List<Account>)SOQLQueryCache.query(
+    'SELECT Id, Name FROM Account',
+    withSharingOpts
+);
+
+// WITHOUT SHARING - Bypasses sharing rules (use with caution)
+SOQLQueryCache.CacheOptions withoutSharingOpts = new SOQLQueryCache.CacheOptions()
+    .setEnforceSharing(false); // For system-level operations
+
+List<Account> allAccounts = (List<Account>)SOQLQueryCache.query(
+    'SELECT Id, Name FROM Account',
+    withoutSharingOpts
+);
 ```
 
-**Note:** Both paths currently use `Database.query()` which respects user permissions. Future enhancement may support true `without sharing` execution.
+**How it works:**
+- `enforceSharing=true` → Uses `with sharing` inner class
+- `enforceSharing=false` → Uses `without sharing` inner class
+- Both still respect **user permissions** (FLS/CRUD)
+- Only sharing rules differ
+
+**Important:** When using Platform Cache with `enforceSharing=false`, ensure cache keys include user context to prevent data leakage:
+```apex
+// BAD - All users share the same cache key
+String query = 'SELECT Id FROM Account';
+SOQLQueryCache.query(query, withoutSharingOpts); // Risk: User A sees User B's cached results
+
+// GOOD - Include user context in query for user-specific data
+String query = 'SELECT Id FROM Account WHERE OwnerId = \'' + UserInfo.getUserId() + '\'';
+SOQLQueryCache.query(query, withoutSharingOpts); // Safe: Cache key includes user ID
+```
 
 ### Platform Cache Access
 
@@ -715,10 +750,12 @@ force-app/
 │   ├── classes/
 │   │   ├── SOQLQueryCache.cls           # Main caching layer
 │   │   ├── SOQLNormalizer.cls           # Query normalization
+│   │   ├── SOQLQueryExecutor.cls        # Sharing enforcement (with/without)
 │   │   ├── SOQLStoredProcedure.cls      # Stored procedure executor
 │   │   ├── SOQLCacheStatistics.cls      # Statistics tracking
 │   │   ├── SOQLQueryCacheTest.cls       # Cache tests
 │   │   ├── SOQLNormalizerTest.cls       # Normalizer tests
+│   │   ├── SOQLQueryExecutorTest.cls    # Sharing enforcement tests
 │   │   └── SOQLStoredProcedureTest.cls  # Stored procedure tests
 │   ├── cachePartitions/
 │   │   └── SOQLCache.cachePartition-meta.xml

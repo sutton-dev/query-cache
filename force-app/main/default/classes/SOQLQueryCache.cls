@@ -172,13 +172,12 @@ public class SOQLQueryCache {
         if (!soql.toUpperCase().contains('LIMIT') && options.maxResults > 0) {
             finalQuery = soql + ' LIMIT ' + options.maxResults;
         }
-        
+
         // Execute with or without sharing based on options
         if (options.enforceSharing) {
-            return Database.query(finalQuery);
+            return SOQLQueryExecutor.executeWithSharing(finalQuery);
         } else {
-            // Note: This still respects user permissions but not sharing rules
-            return Database.query(finalQuery);
+            return SOQLQueryExecutor.executeWithoutSharing(finalQuery);
         }
     }
     
