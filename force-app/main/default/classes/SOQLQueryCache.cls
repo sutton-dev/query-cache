@@ -94,6 +94,12 @@ public class SOQLQueryCache {
     public static List<SObject> query(String soql, CacheOptions options) {
         // Normalize the query for consistent cache keys
         String cacheKey = SOQLNormalizer.normalize(soql);
+
+        // Fallback to hash if normalization returns empty/null (required for Platform Cache)
+        if (String.isBlank(cacheKey)) {
+            cacheKey = generateHashKey(soql);
+        }
+
         return queryWithKey(soql, cacheKey, options);
     }
     
@@ -177,12 +183,47 @@ public class SOQLQueryCache {
     }
     
     /**
+     * Generate a hash-based cache key from a query string
+     * Platform Cache requires alphanumeric keys only (no special characters)
+     * Max length: 50 characters
+     */
+    private static String generateHashKey(String query) {
+        if (String.isBlank(query)) {
+            return 'Q' + String.valueOf(System.currentTimeMillis());
+        }
+        Blob hash = Crypto.generateDigest('SHA-256', Blob.valueOf(query));
+        // Use first 50 chars of hex hash (alphanumeric only, max 50 char limit)
+        return EncodingUtil.convertToHex(hash).substring(0, 50);
+    }
+
+    /**
+     * Sanitize cache key for Platform Cache (alphanumeric only, max 50 chars)
+     * Platform Cache requires:
+     * - Alphanumeric only (no spaces, underscores, or special chars)
+     * - Maximum length of 50 characters
+     */
+    private static String sanitizePlatformCacheKey(String key) {
+        if (String.isBlank(key)) {
+            return generateHashKey(key);
+        }
+
+        // If key is too long or contains non-alphanumeric characters, hash it
+        if (key.length() > 50 || !Pattern.matches('^[a-zA-Z0-9]+$', key)) {
+            Blob hash = Crypto.generateDigest('SHA-256', Blob.valueOf(key));
+            return EncodingUtil.convertToHex(hash).substring(0, 50);
+        }
+
+        return key;
+    }
+
+    /**
      * Get result from Platform Cache
      */
     private static CachedResult getPlatformCacheResult(String key) {
         try {
             Cache.OrgPartition orgPart = Cache.Org.getPartition(PLATFORM_CACHE_PARTITION);
-            return (CachedResult)orgPart.get(key);
+            String platformKey = sanitizePlatformCacheKey(key);
+            return (CachedResult)orgPart.get(platformKey);
         } catch (Exception e) {
             System.debug(LoggingLevel.WARN, 'Platform Cache get failed: ' + e.getMessage());
             return null;
@@ -195,11 +236,12 @@ public class SOQLQueryCache {
     private static void putPlatformCacheResult(String key, CachedResult cached) {
         try {
             Cache.OrgPartition orgPart = Cache.Org.getPartition(PLATFORM_CACHE_PARTITION);
-            
+
             // Calculate TTL for platform cache
             Integer ttl = cached.ttlSeconds > 0 ? cached.ttlSeconds : 300; // Default 5 min
-            
-            orgPart.put(key, cached, ttl);
+
+            String platformKey = sanitizePlatformCacheKey(key);
+            orgPart.put(platformKey, cached, ttl);
         } catch (Exception e) {
             System.debug(LoggingLevel.WARN, 'Platform Cache put failed: ' + e.getMessage());
         }
@@ -231,10 +273,11 @@ public class SOQLQueryCache {
      */
     public static void clearCacheKey(String cacheKey) {
         transactionCache.remove(cacheKey);
-        
+
         try {
             Cache.OrgPartition orgPart = Cache.Org.getPartition(PLATFORM_CACHE_PARTITION);
-            orgPart.remove(cacheKey);
+            String platformKey = sanitizePlatformCacheKey(cacheKey);
+            orgPart.remove(platformKey);
         } catch (Exception e) {
             System.debug(LoggingLevel.WARN, 'Platform Cache remove failed: ' + e.getMessage());
         }
