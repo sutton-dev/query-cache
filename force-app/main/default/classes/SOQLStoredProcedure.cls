@@ -64,6 +64,7 @@ public class SOQLStoredProcedure {
     /**
      * Build query with parameter binding
      */
+    @TestVisible
     private static String buildQuery(SOQL_Stored_Procedure__mdt procedure, Map<String, Object> params) {
         String query = procedure.Query__c;
         
@@ -115,6 +116,7 @@ public class SOQLStoredProcedure {
     /**
      * Build cache options from metadata
      */
+    @TestVisible
     private static SOQLQueryCache.CacheOptions buildCacheOptions(SOQL_Stored_Procedure__mdt procedure) {
         SOQLQueryCache.CacheOptions options = new SOQLQueryCache.CacheOptions();
         
@@ -150,6 +152,7 @@ public class SOQLStoredProcedure {
     /**
      * Execute query with custom cache key (used by stored procedures)
      */
+    @TestVisible
     private static List<SObject> queryWithCustomKey(String procedureName, Map<String, Object> params, String query, SOQLQueryCache.CacheOptions options) {
         // Build cache key from procedure name + sorted parameters
         String cacheKey = buildProcedureCacheKey(procedureName, params);
@@ -161,6 +164,7 @@ public class SOQLStoredProcedure {
      * Build cache key for stored procedure
      * Format: procedureName|param1=value1|param2=value2
      */
+    @TestVisible
     private static String buildProcedureCacheKey(String procedureName, Map<String, Object> params) {
         List<String> keyParts = new List<String>{ 'SP:' + procedureName };
         
@@ -206,6 +210,11 @@ public class SOQLStoredProcedure {
         String cacheKey = buildProcedureCacheKey(procedureName, params);
         SOQLQueryCache.clearCacheKey(cacheKey);
     }
+    
+    /**
+     * List all active stored procedures
+     */
+    @TestVisible
     public static List<SOQL_Stored_Procedure__mdt> listProcedures() {
         return [
             SELECT Id, DeveloperName, Label, Description__c, Active__c
