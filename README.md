@@ -22,13 +22,15 @@ Common scenarios:
 - **Dashboards** - Aggregate queries that don't need real-time updates
 
 ### The Solution
-SOQL Query Cache provides intelligent, production-ready caching:
-- **10-50x faster** query execution for cached results (1-3ms vs 15-100ms)
-- **60-90% reduction** in SOQL query governor limit usage
+SOQL Query Cache provides intelligent caching for repeated queries:
+- **Reduces SOQL governor limit usage** - Cache hits don't count toward your 100 query limit
+- **Saves time on cache hits** - Typically 5-10ms per cached query vs 15-100ms database queries
 - **Drop-in replacement** for `Database.query()` - minimal code changes
 - **Intelligent normalization** - query variations automatically hit the same cache
 - **Flexible storage** - transaction-scoped, Platform Cache, or hybrid two-tier
-- **Production-proven** - safe for governor limits, respects sharing rules
+- **Respects security** - supports both with/without sharing modes
+
+**Note:** Performance benefits vary significantly based on query complexity, data volume, and caching strategy. Run the included demos in your org to measure actual impact.
 
 ---
 
@@ -64,33 +66,53 @@ That's it! Your queries are now cached automatically.
 
 ### 4. Run the Demo
 
-See the performance benefits immediately:
+Measure actual performance in your org:
 ```apex
-SOQLCachePOC.quickDemo();  // 30-second comparison demo
+SOQLCachePOC.quickDemo();  // Quick comparison demo
 SOQLCachePOC.runDemo();    // Full demonstration suite
 ```
 
+**Important:** Performance varies by query complexity, data volume, and org configuration. The demos show actual timings in your environment.
+
 ---
 
-## 📊 Performance Benchmarks
+## 📊 Performance Expectations
 
-### Real-World Results
+### What to Expect
 
-| Scenario | Uncached | Cached | Speedup |
-|----------|----------|--------|---------|
-| Simple query (100 records) | 15-30ms | 1-3ms | **10-15x faster** |
-| Complex query with relationships | 50-100ms | 1-3ms | **25-50x faster** |
-| Aggregate query | 30-60ms | 1-3ms | **15-30x faster** |
-| Lightning component with 5 queries | 100-150ms | 5-10ms | **15-20x faster** |
-| API endpoint (repeated calls) | 25-50ms each | 1-2ms cached | **15-25x faster** |
+**Cache Hit Performance:**
+- Cache lookup: **<1ms** (transaction cache) or **1-2ms** (Platform Cache)
+- Normalization overhead: **1-2ms** (simple queries) to **10-15ms** (complex with subqueries)
+- **Net benefit:** Saves 5-10ms per cache hit for typical queries
 
-### Cache Hit Rates
+**Cache Miss (First Call):**
+- Normalization: **1-15ms** (depending on query complexity)
+- Database query: **Variable** (5ms to 100ms+ depending on data)
+- Cache storage: **<1ms**
+- **Total:** Slightly slower than `Database.query()` due to normalization overhead
 
-Production metrics from typical implementations:
-- **60-80% hit rate** for standard applications
-- **90%+ hit rate** for read-heavy dashboards and LWCs
-- **40-60% hit rate** for queries with dynamic parameters
-- **Reduces SOQL query governor limit usage** by 60-90%
+**Governor Limit Savings:**
+- Cache hits **don't count** toward SOQL query limit (100 per transaction)
+- Actual reduction depends on your hit rate (typically 40-80%)
+
+### Expected Hit Rates
+
+**Good scenarios (60-80%+ hit rate):**
+- Trigger helper methods querying same RecordTypes/Custom Metadata
+- Service layer methods called repeatedly in one transaction
+- Lightning components with multiple refresh cycles
+- API endpoints serving same data to multiple concurrent users
+
+**Poor scenarios (<30% hit rate):**
+- Highly dynamic queries with many parameter variations
+- One-time queries
+- Queries with user-specific WHERE clauses (without Platform Cache)
+
+### Performance Notes
+
+⚠️ **Very fast queries (<10ms):** May not benefit from caching due to normalization overhead
+✅ **Expensive queries (>30ms):** Good candidates - normalization overhead is relatively small
+✅ **Repeated queries:** Benefits multiply with each cache hit in the same transaction
 
 ---
 
@@ -247,7 +269,7 @@ public static List<Account> getAccounts() {
         opts
     );
 }
-// First load: 20-30ms | Subsequent loads: 1-2ms (15x faster!)
+// First load: ~25ms (normalization + query) | Subsequent loads: ~2ms (cached)
 ```
 
 ### REST API Endpoints
@@ -280,7 +302,7 @@ global class AccountAPI {
         );
     }
 }
-// First request: 25-50ms | Cached requests: 1-2ms (25x faster!)
+// First request: ~30ms | Cached requests: ~2ms (saves SOQL limit + time)
 ```
 
 ### Trigger Helper Methods
@@ -307,7 +329,7 @@ public class AccountTriggerHelper {
             'SELECT Id, DeveloperName FROM RecordType WHERE SObjectType = \'Account\'',
             CACHE_OPTS
         );
-        // First helper method: 15ms | Subsequent: <1ms
+        // First helper method: ~15ms | Subsequent: <1ms (cached)
         return new Map<String, RecordType>(/* convert to map */);
     }
 
@@ -366,10 +388,10 @@ public class AccountService {
 }
 
 // Called multiple times - only first call hits database
-List<Account> accounts1 = AccountService.getActiveAccounts(); // 20ms (miss)
-List<Account> accounts2 = AccountService.getActiveAccounts(); // <1ms (hit)
-List<Account> accounts3 = AccountService.getActiveAccounts(); // <1ms (hit)
-// Total: ~22ms + uses only 1 SOQL query limit
+List<Account> accounts1 = AccountService.getActiveAccounts(); // ~20ms (miss)
+List<Account> accounts2 = AccountService.getActiveAccounts(); // <1ms (cached hit)
+List<Account> accounts3 = AccountService.getActiveAccounts(); // <1ms (cached hit)
+// Total: ~22ms vs 60ms uncached | Uses 1 SOQL query vs 3
 ```
 
 ### Complex Dashboard Queries
@@ -394,7 +416,7 @@ public class DashboardController {
         .setTTL(300); // Refresh every 5 minutes
 
     public List<AggregateResult> getMetrics() {
-        // First load: 150-250ms | Subsequent loads: 5-10ms (25x faster!)
+        // First load: ~200ms | Subsequent loads: ~10ms (saves SOQL limits)
         List<AggregateResult> revenue = (List<AggregateResult>)SOQLQueryCache.query(
             'SELECT SUM(Amount) FROM Opportunity...',
             CACHE_OPTS
@@ -801,4 +823,4 @@ Special thanks to all contributors and early adopters who provided feedback and 
 
 ---
 
-**Ready to speed up your Salesforce org? Deploy today and see 15-100x performance improvements!**
+**Ready to reduce SOQL governor limit usage? Deploy today and measure the impact in your org!**
